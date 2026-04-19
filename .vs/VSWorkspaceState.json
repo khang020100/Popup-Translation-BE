@@ -1,0 +1,14 @@
+{
+  "ExpandedNodes": [
+    "",
+    "\\src",
+    "\\src\\controllers",
+    "\\src\\libs",
+    "\\src\\middlewares",
+    "\\src\\models",
+    "\\src\\routes",
+    "\\src\\services"
+  ],
+  "SelectedNode": "\\src\\services\\getWord.js",
+  "PreviewInSolutionExplorer": false
+}

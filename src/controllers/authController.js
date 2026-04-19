@@ -1,0 +1,105 @@
+import bcrypt from 'bcrypt' ;
+import User from '../models/User.js';
+import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
+import Session from '../models/session.js';
+
+const ACCESS_TOKEN_TTL = '15m';
+const REFRESH_TOKEN_TTL = 7 * 24 * 60 * 60 * 1000;
+
+export const signUp = async(req,res) =>
+{
+    try{
+        const {username, password, email, displayName} = req.body;
+        if(!username || !password || !email || !displayName){
+            return res.status(400).json({message: 'All fields are required'});
+        }
+        const duplicateUser = await User.findOne({$or: [{username}, {email}]});
+        if(duplicateUser){
+            return res.status(409).json({message: 'Username or email already in use'});
+        }
+        const hashedPassword = await bcrypt.hash(password, 10);
+        await User.create({
+            username,
+            hashedPassword,
+            email,
+            displayName,
+        });
+        return res.status(201).json({message: 'User created successfully'});
+    }
+    catch(err){
+       console.error('Error during user signup:', err);
+       return res.status(500).json({message: 'Internal server error'});
+    }
+}; 
+export const logIn = async(req,res) =>
+{
+    try{
+        const {username, password} = req.body;
+        if(!username || !password){
+            return res.status(400).json({message: 'All fields are required'});
+        }
+        const user = await User.findOne({username});
+        if(!user){
+            return res.status(401).json({message: 'Invalid credentials'});
+        }
+        const passwordMatch = await bcrypt.compare(password, user.hashedPassword);
+        if(!passwordMatch){
+            return res.status(401).json({message: 'Invalid credentials'});
+        }
+        const accessToken = jwt.sign({userId: user._id}, process.env.ACCESS_TOKEN_SECRET, {expiresIn: ACCESS_TOKEN_TTL});
+        const refreshToken = crypto.randomBytes(64).toString('hex');
+
+        await Session.create({
+            userId: user._id,
+            refreshToken,
+            expiresAt: new Date(Date.now() + REFRESH_TOKEN_TTL),
+        }); 
+        res.cookie('refreshToken', refreshToken, {
+            httpOnly: true,
+            secure:true,
+            sameSite: 'None',
+            maxAge: REFRESH_TOKEN_TTL
+        })
+        return res.status(200).json({message: `User ${user.displayName} logged in successfully`, accessToken});
+    }
+    catch(err){
+        console.error('Error during user login:', err);
+       return res.status(500).json({message: 'Internal server error'});
+    }
+}
+
+export const logOut = async(req,res) =>
+{
+    try{
+        const token = req.cookies?.refreshToken;
+        if(token){
+            await Session.deleteOne({refreshToken: token});
+            res.clearCookie('refreshToken');
+        }
+        return res.status(204);
+    }
+    catch(err){
+        console.error('Error during user logout:', err);
+       return res.status(500).json({message: 'Internal server error'});
+    }
+}
+export const refreshToken = async(req,res) =>
+{
+    try{
+        const token = req.cookies?.refreshToken;
+        if(!token){
+            return res.status(401).json({message: 'Refresh token missing'});
+        }
+        const session = await Session.findOne({refreshToken: token});
+        if(!session){
+            return res.status(403).json({message: 'Invalid or expired refresh token'});
+        }   
+        const accessToken = jwt.sign({userId: session.userId}, process.env.ACCESS_TOKEN_SECRET, {expiresIn: ACCESS_TOKEN_TTL});
+        return res.status(200).json({accessToken});
+    }
+    catch(err){
+        console.error('Error during token refresh:', err);
+       return res.status(500).json({message: 'Internal server error'});
+    }
+}
